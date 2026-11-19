@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>전술통신(999K / 전투원용무전기 / TMMR) 3D LOS 가시권 도포기</title>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Malgun Gothic', -apple-system, sans-serif; }
+    body, html { width: 100%; height: 100%; overflow: hidden; background: #121518; color: #f1f3f5; }
+    #map { width: 100%; height: 100%; }
+
+    .marker-a-dot {
+      width: 18px;
+      height: 18px;
+      background: #ff3b30;
+      border: 3px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 0 0 3px rgba(255, 59, 48, 0.6), 0 4px 10px rgba(0, 0, 0, 0.85);
+      pointer-events: none;
+    }
+
+    .panel {
+      position: absolute; top: 14px; left: 14px; z-index: 10;
+      width: 356px; max-width: calc(100vw - 28px); max-height: calc(100vh - 28px); overflow-y: auto;
+      background: rgba(17, 21, 26, 0.94); border: 1px solid #36414c;
+      border-radius: 10px; padding: 15px; box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+    }
+    .panel.collapsed { display: none; }
+
+    .open-btn {
+      position: absolute; top: 14px; left: 14px; z-index: 10;
+      display: none; padding: 9px 13px; border-radius: 8px;
+      background: rgba(17, 21, 26, 0.94); border: 1px solid #4dabf7;
+      color: #fff; font-size: 13px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+    }
+    .open-btn.show { display: inline-block; }
+
+    .panel-top {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+      margin-bottom: 12px; padding-bottom: 9px; border-bottom: 1px solid #2c353f;
+    }
+    .title { font-size: 15.5px; font-weight: 700; color: #4dabf7; margin-bottom: 3px; }
+    .sub { font-size: 11px; color: #adb5bd; }
+    .collapse-btn {
+      padding: 5px 9px; border-radius: 6px; border: 1px solid #495057;
+      background: #2b3035; color: #e9ecef; font-size: 11.5px; font-weight: 700;
+      cursor: pointer; white-space: nowrap;
+    }
+    .collapse-btn:hover { background: #3b4248; }
+
+    .group { margin-bottom: 11px; }
+    .group label { display: block; font-size: 12px; font-weight: 600; color: #ced4da; margin-bottom: 4px; }
+
+    .mgrs-grid {
+      display: grid;
+      grid-template-columns: 42px 34px 44px 1fr 1fr;
+      gap: 5px;
+      margin-bottom: 6px;
+    }
+    .mgrs-cell {
+      width: 100%;
+      padding: 7px 5px;
+      background: #242b33;
+      border: 1px solid #495057;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 12.5px;
+      text-align: center;
+    }
+    .mgrs-cell:focus { outline: none; border-color: #4dabf7; }
+
+    .check-row {
+      display: flex; align-items: center; gap: 7px; margin-top: 6px;
+      font-size: 12px; color: #dee2e6; cursor: pointer; user-select: none;
+    }
+    .check-row input[type="checkbox"] { accent-color: #339af0; width: 15px; height: 15px; cursor: pointer; }
+
+    .btn-half-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+
+    input[type="text"], select {
+      width: 100%; padding: 8px 10px; background: #242b33; border: 1px solid #495057;
+      border-radius: 6px; color: #fff; font-size: 12.5px;
+    }
+    input[type="text"]:focus, select:focus { outline: none; border-color: #4dabf7; }
+
+    .s-head { display: flex; justify-content: space-between; font-size: 12px; color: #ced4da; margin-bottom: 3px; }
+    .s-val { color: #74c0fc; font-weight: 700; }
+    input[type="range"] { width: 100%; accent-color: #339af0; cursor: pointer; }
+
+    .btn {
+      width: 100%; padding: 10px; border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .btn-run { background: #1c7ed6; color: #fff; margin-top: 4px; }
+    .btn-run:hover { background: #1971c2; }
+    .btn-run:disabled { background: #495057; cursor: not-allowed; }
+    .btn-go { width: 100%; padding: 8px 12px; font-size: 12.5px; background: #495057; color: #fff; }
+    .btn-go:hover { background: #5c636a; }
+    .btn-toggle { padding: 8px 10px; font-size: 12px; background: #2b8a3e; color: #fff; }
+    .btn-toggle.off { background: #5c636a; color: #e9ecef; }
+
+    .legend { display: flex; gap: 12px; margin-top: 10px; font-size: 11px; color: #dee2e6; }
+    .lg { display: flex; align-items: center; gap: 5px; }
+    .box { width: 11px; height: 11px; border-radius: 2px; }
+
+    .status {
+      margin-top: 10px; padding: 9px 10px; background: #161b20; border: 1px solid #2b333d;
+      border-radius: 6px; font-size: 11.5px; color: #e9ecef; line-height: 1.45; word-break: break-all;
+    }
+    .hint { margin-top: 8px; font-size: 11px; color: #868e96; line-height: 1.4; }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<button class="open-btn" id="openPanelBtn" onclick="togglePanel(false)">⚙️ LOS 설정</button>
+
+<div class="panel" id="controlPanel">
+  <div class="panel-top">
+    <div>
+      <div class="title">🛰️ 전술통신 LOS 가시권 분석기</div>
+      <div class="sub">999K · 전투원용무전기 · TMMR · 안테나 최대 10m</div>
+    </div>
+    <button class="collapse-btn" onclick="togglePanel(true)">접기</button>
+  </div>
+
+  <div class="group">
+    <label>기준점 A (존 · 위도대 · 100km격자 · 동거 · 북거)</label>
+    <div class="mgrs-grid">
+      <input type="text" class="mgrs-cell" id="mZone" maxlength="2" placeholder="52" value="52"
+        oninput="onMgrsPartInput(this, 2, 'mBand')" onkeydown="if(event.key==='Enter') moveToMgrsBoxes()" />
+      <input type="text" class="mgrs-cell" id="mBand" maxlength="1" placeholder="S" value="S"
+        oninput="onMgrsPartInput(this, 1, 'mSq')" onkeydown="if(event.key==='Enter') moveToMgrsBoxes()" />
+      <input type="text" class="mgrs-cell" id="mSq" maxlength="2" placeholder="CH" value="CH"
+        oninput="onMgrsPartInput(this, 2, 'mEast')" onkeydown="if(event.key==='Enter') moveToMgrsBoxes()" />
+      <input type="text" class="mgrs-cell" id="mEast" maxlength="5" inputmode="numeric" placeholder="71122"
+        oninput="onMgrsPartInput(this, 5, 'mNorth')" onkeydown="if(event.key==='Enter') moveToMgrsBoxes()" />
+      <input type="text" class="mgrs-cell" id="mNorth" maxlength="5" inputmode="numeric" placeholder="37512"
+        oninput="onMgrsPartInput(this, 5, null)" onkeydown="if(event.key==='Enter') moveToMgrsBoxes()" />
+    </div>
+    <button class="btn btn-go" onclick="moveToMgrsBoxes()">MGRS 좌표 이동 및 지정</button>
+
+    <label class="check-row">
+      <input type="checkbox" id="autoRunCheck" checked />
+      <span>이동 시 기준점 지정 및 LOS 자동 도포</span>
+    </label>
+  </div>
+
+  <div class="group">
+    <label>장비 및 안테나 운용 프리셋</label>
+    <select id="presetSelect" onchange="applyPreset()">
+      <optgroup label="1. 999K (30.00~87.975 MHz)">
+        <option value="999k_short">999K 휴대 - 숏안테나 (50MHz · 4km · 지상고 2m)</option>
+        <option value="999k_long">999K 휴대 - 롱안테나 (50MHz · 8km · 지상고 3m)</option>
+        <option value="999k_as992k">999K 고정 - AS-992K (50MHz · 30km · 지상고 10m)</option>
+      </optgroup>
+      <optgroup label="2. 전투원용무전기 (400~470 MHz)">
+        <option value="combat_radio">전투원용무전기 고출력 (435MHz · 2km · 지상고 2m)</option>
+        <option value="combat_relay">전투원용무전기 중계기 고출력 (435MHz · 4km · 지상고 6m)</option>
+      </optgroup>
+      <optgroup label="3. TMMR">
+        <option value="tmmr_vhf">TMMR VHF 운용 (60MHz · 12km · 지상고 3m)</option>
+        <option value="tmmr_uhf">TMMR UHF/광대역 운용 (400MHz · 8km · 지상고 6m)</option>
+      </optgroup>
+    </select>
+  </div>
+
+  <div class="group">
+    <div class="s-head"><span>분석 반경</span><span class="s-val" id="radiusLbl">4 km</span></div>
+    <input type="range" id="radiusSlider" min="1" max="30" step="1" value="4" oninput="updateLbls()" />
+  </div>
+
+  <div class="group">
+    <div class="s-head"><span>송신 안테나 지상고 (최대 10m)</span><span class="s-val" id="txLbl">2 m</span></div>
+    <input type="range" id="txSlider" min="1" max="10" step="1" value="2" oninput="updateLbls()" />
+  </div>
+
+  <div class="group">
+    <div class="s-head"><span>수신 안테나 지상고 (최대 10m)</span><span class="s-val" id="rxLbl">2 m</span></div>
+    <input type="range" id="rxSlider" min="1" max="10" step="1" value="2" oninput="updateLbls()" />
+  </div>
+
+  <div class="group">
+    <div class="s-head"><span>수목·지장물 보정</span><span class="s-val" id="clutterLbl">2 m</span></div>
+    <input type="range" id="clutterSlider" min="0" max="20" step="1" value="2" oninput="updateLbls()" />
+  </div>
+
+  <div class="group">
+    <div class="s-head"><span>가시권 표시 투명도</span><span class="s-val" id="opacityLbl">35%</span></div>
+    <input type="range" id="opacitySlider" min="10" max="80" step="5" value="35" oninput="updateOpacity()" />
+  </div>
+
+  <div class="group">
+    <div class="s-head"><span>3D 경사 기울기 (0°~90°)</span><span class="s-val" id="pitchLbl">60°</span></div>
+    <input type="range" id="pitchSlider" min="0" max="90" step="5" value="60" oninput="updatePitch()" />
+  </div>
+
+  <button class="btn btn-run" id="runBtn" onclick="runViewshed()">전방위 LOS 가시권 고해상도 도포</button>
+
+  <div class="btn-half-row">
+    <button class="btn btn-toggle" id="toggleVisBtn" onclick="toggleViewshedVisibility()">가시권 표시: ON</button>
+    <button class="btn btn-go" onclick="resetViewAngle()">시점 초기화</button>
+  </div>
+
+  <div class="legend">
+    <div class="lg"><span class="box" style="background: rgba(34, 211, 102, 0.55);"></span>소통 양호(LOS 확보)</div>
+    <div class="lg"><span class="box" style="background: rgba(250, 204, 21, 0.55);"></span>제한·회절(간섭/여유 부족)</div>
+  </div>
+
+  <div class="status" id="statusBox">
+    지도 초기화 중...
+  </div>
+
+  <div class="hint">
+    • MGRS 예: <b>52</b> | <b>S</b> | <b>CH</b> | <b>71122</b> | <b>37512</b><br>
+    • 지도 좌클릭: 기준점 A 지정 &nbsp;|&nbsp; 우클릭 드래그: 3D 회전
+  </div>
+</div>
+
+<script>
+  const R_EARTH = 6371000;
+  const R_EFF = R_EARTH * (4 / 3);
+  const DEM_ZOOM = 13;
+  const tileCache = new Map();
+
+  let pointA = null;
+  let markerA = null;
+  let freqMHz = 50;
+  let mapReady = false;
+  let runToken = 0;
+  let viewshedVisible = true;
+
+  function togglePanel(collapse) {
+    const panel = document.getElementById('controlPanel');
+    const openBtn = document.getElementById('openPanelBtn');
+    if (collapse) {
+      panel.classList.add('collapsed');
+      openBtn.classList.add('show');
+    } else {
+      panel.classList.remove('collapsed');
+      openBtn.classList.remove('show');
+    }
+  }
+
+  function onMgrsPartInput(el, maxLen, nextId) {
+    if (el.id === 'mZone' || el.id === 'mEast' || el.id === 'mNorth') {
+      el.value = el.value.replace(/\D/g, '').slice(0, maxLen);
+    } else {
+      el.value = el.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, maxLen);
+    }
+    if (nextId && el.value.length >= maxLen) {
+      const nextEl = document.getElementById(nextId);
+      if (nextEl) nextEl.focus();
+    }
+  }
+
+  const MGRS_SET_1 = "ABCDEFGH";
+  const MGRS_SET_2 = "JKLMNPQRSTUV";
+  const ROW_LETTERS = "ABCDEFGHJKLMNPQRSTUV";
+  const LAT_BANDS = "CDEFGHJKLMNPQRSTUVWX";
+
+  function getZoneColLetters(zoneNum) {
+    return zoneNum % 2 === 0 ? MGRS_SET_1 : MGRS_SET_2;
+  }
+
+  function getZoneRowOffset(zoneNum) {
+    return zoneNum % 2 === 0 ? 5 : 10;
+  }
+
+  function latLngToUtm(lat, lng) {
+    const zoneNum = Math.floor((lng + 180) / 6) + 1;
+    const a = 6378137.0, f = 1 / 298.257223563, k0 = 0.9996;
+    const e2 = 2 * f - f * f, ep2 = e2 / (1 - e2);
+    const latRad = (lat * Math.PI) / 180;
+    const lonOrigin = ((zoneNum - 1) * 6 - 180 + 3) * (Math.PI / 180);
+    const lonRad = (lng * Math.PI) / 180;
+
+    const N = a / Math.sqrt(1 - e2 * Math.sin(latRad) ** 2);
+    const T = Math.tan(latRad) ** 2;
+    const C = ep2 * Math.cos(latRad) ** 2;
+    const A = Math.cos(latRad) * (lonRad - lonOrigin);
+
+    const M = a * (
+      (1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256) * latRad
+      - (3 * e2 / 8 + 3 * e2 ** 2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * latRad)
+      + (15 * e2 ** 2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * latRad)
+      - (35 * e2 ** 3 / 3072) * Math.sin(6 * latRad)
+    );
+
+    const easting = k0 * N * (
+      A + (1 - T + C) * A ** 3 / 6
+      + (5 - 18 * T + T ** 2 + 72 * C - 58 * ep2) * A ** 5 / 120
+    ) + 500000;
+
+    let northing = k0 * (
+      M + N * Math.tan(latRad) * (
+        A ** 2 / 2 + (5 - T + 9 * C + 4 * C ** 2) * A ** 4 / 24
+        + (61 - 58 * T + T ** 2 + 600 * C - 330 * ep2) * A ** 6 / 720
+      )
+    );
+    if (lat < 0) northing += 10000000;
+
+    return { zoneNum, easting, northing };
+  }
+
+  function latLngToMgrs(lat, lng) {
+    const { zoneNum, easting, northing } = latLngToUtm(lat, lng);
+    const bandIdx = Math.max(0, Math.min(LAT_BANDS.length - 1, Math.floor((lat + 80) / 8)));
+    const band = LAT_BANDS[bandIdx];
+
+    const colLetters = getZoneColLetters(zoneNum);
+    const colChar = colLetters[Math.max(0, Math.min(7, Math.floor(easting / 100000) - 1))];
+
+    const rowOffset = getZoneRowOffset(zoneNum);
+    const rowIdx = (((Math.floor(northing / 100000) + rowOffset) % 20) + 20) % 20;
+    const rowChar = ROW_LETTERS[rowIdx];
+
+    const e5 = String(Math.floor(((easting % 100000) + 100000) % 100000)).padStart(5, '0').slice(0, 5);
+    const n5 = String(Math.floor(((northing % 100000) + 100000) % 100000)).padStart(5, '0').slice(0, 5);
+    return { zone: String(zoneNum), band, sq: `${colChar}${rowChar}`, east: e5, north: n5 };
+  }
+
+  function partsToLatLng(zoneRaw, bandRaw, sqRaw, eastRaw, northRaw) {
+    const zoneNum = parseInt(zoneRaw, 10);
+    if (!zoneNum || zoneNum < 1 || zoneNum > 60) return null;
+
+    const band = (bandRaw || "S").toUpperCase();
+    const sqClean = (sqRaw || "").toUpperCase().replace(/[^A-Z]/g, '');
+    if (sqClean.length < 2) return null;
+
+    const colChar = sqClean.length >= 3 ? sqClean[1] : sqClean[0];
+    const rowChar = sqClean.length >= 3 ? sqClean[2] : sqClean[1];
+
+    const colLetters = getZoneColLetters(zoneNum);
+    const colNum = colLetters.indexOf(colChar);
+    if (colNum < 0) return null;
+
+    const rowOffset = getZoneRowOffset(zoneNum);
+    const rowCharIdx = ROW_LETTERS.indexOf(rowChar);
+    if (rowCharIdx < 0) return null;
+    const baseRow = (((rowCharIdx - rowOffset) % 20) + 20) % 20;
+
+    const eClean = (eastRaw || "").replace(/\D/g, '').slice(0, 5);
+    const nClean = (northRaw || "").replace(/\D/g, '').slice(0, 5);
+    const e100kPart = eClean.length > 0 ? parseInt(eClean.padEnd(5, '0'), 10) : 50000;
+    const n100kPart = nClean.length > 0 ? parseInt(nClean.padEnd(5, '0'), 10) : 50000;
+
+    const easting = (colNum + 1) * 100000 + e100kPart;
+
+    const bandIdx = Math.max(0, LAT_BANDS.indexOf(band));
+    const approxLat = -80 + bandIdx * 8 + 4;
+    const approxUtm = latLngToUtm(approxLat, (zoneNum - 1) * 6 - 180 + 3);
+    const approxNorthing = approxUtm.northing;
+
+    const cycle = 20 * 100000;
+    let northing = baseRow * 100000 + n100kPart;
+    while (northing < approxNorthing - cycle / 2) northing += cycle;
+    while (northing > approxNorthing + cycle / 2) northing -= cycle;
+
+    const a = 6378137.0, f = 1 / 298.257223563, k0 = 0.9996;
+    const e2 = 2 * f - f * f, ep2 = e2 / (1 - e2);
+    const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+    const x = easting - 500000, y = northing;
+    const mu = y / (a * k0 * (1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256));
+
+    const phi1 = mu
+      + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu)
+      + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu)
+      + (151 * e1 ** 3 / 96) * Math.sin(6 * mu);
+
+    const N1 = a / Math.sqrt(1 - e2 * Math.sin(phi1) ** 2);
+    const T1 = Math.tan(phi1) ** 2;
+    const C1 = ep2 * Math.cos(phi1) ** 2;
+    const R1 = a * (1 - e2) / Math.pow(1 - e2 * Math.sin(phi1) ** 2, 1.5);
+    const D = x / (N1 * k0);
+
+    const latRad = phi1 - (N1 * Math.tan(phi1) / R1) * (
+      D ** 2 / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 ** 2 - 9 * ep2) * D ** 4 / 24
+      + (61 + 90 * T1 + 298 * C1 + 45 * T1 ** 2 - 252 * ep2 - 3 * C1 ** 2) * D ** 6 / 720
+    );
+
+    const lonOrigin = ((zoneNum - 1) * 6 - 180 + 3) * (Math.PI / 180);
+    const lonRad = lonOrigin + (
+      D - (1 + 2 * T1 + C1) * D ** 3 / 6
+      + (5 - 2 * C1 + 28 * T1 - 3 * C1 ** 2 + 8 * ep2 + 24 * T1 ** 2) * D ** 5 / 120
+    ) / Math.cos(phi1);
+
+    return { lat: (latRad * 180) / Math.PI, lng: (lonRad * 180) / Math.PI };
+  }
+
+  function syncMgrsBoxes(lat, lng) {
+    const p = latLngToMgrs(lat, lng);
+    document.getElementById('mZone').value = p.zone;
+    document.getElementById('mBand').value = p.band;
+    document.getElementById('mSq').value = p.sq;
+    document.getElementById('mEast').value = p.east;
+    document.getElementById('mNorth').value = p.north;
+    return `${p.zone}${p.band}${p.sq} ${p.east} ${p.north}`;
+  }
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    maxPitch: 85,
+    style: {
+      version: 8,
+      sources: {
+        satellite: {
+          type: 'raster',
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tileSize: 256,
+          maxzoom: 19
+        },
+        terrariumDem: {
+          type: 'raster-dem',
+          tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          encoding: 'terrarium',
+          maxzoom: 14
+        },
+        pointASrc: {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        }
+      },
+      layers: [
+        { id: 'satellite-layer', type: 'raster', source: 'satellite' },
+        {
+          id: 'point-a-layer',
+          type: 'circle',
+          source: 'pointASrc',
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#ff3b30',
+            'circle-stroke-width': 2.5,
+            'circle-stroke-color': '#ffffff'
+          }
+        }
+      ],
+      terrain: {
+        source: 'terrariumDem',
+        exaggeration: 1.2
+      }
+    },
+    center: [127.313, 38.146],
+    zoom: 13,
+    pitch: 60,
+    bearing: -15
+  });
+
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+
+  function updateMarkerA(lat, lng) {
+    if (!markerA) {
+      const el = document.createElement('div');
+      el.className = 'marker-a-dot';
+      markerA = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([lng, lat])
+        .addTo(map);
+    } else {
+      markerA.setLngLat([lng, lat]);
+    }
+
+    if (map.getSource('pointASrc')) {
+      map.getSource('pointASrc').setData({
+        type: 'FeatureCollection',
+        features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] } }]
+      });
+    }
+  }
+
+  function clearViewshedLayer() {
+    if (map.getLayer('viewshed-raster-layer')) map.removeLayer('viewshed-raster-layer');
+    if (map.getSource('viewshed-raster-src')) map.removeSource('viewshed-raster-src');
+  }
+
+  function getOpacityValue() {
+    return parseInt(document.getElementById('opacitySlider').value, 10) / 100;
+  }
+
+  function updateOpacity() {
+    const pct = parseInt(document.getElementById('opacitySlider').value, 10);
+    document.getElementById('opacityLbl').innerText = pct + '%';
+    if (map.getLayer('viewshed-raster-layer')) {
+      map.setPaintProperty('viewshed-raster-layer', 'raster-opacity', viewshedVisible ? (pct / 100) : 0);
+    }
+  }
+
+  function toggleViewshedVisibility() {
+    viewshedVisible = !viewshedVisible;
+    const btn = document.getElementById('toggleVisBtn');
+    if (viewshedVisible) {
+      btn.innerText = '가시권 표시: ON';
+      btn.classList.remove('off');
+    } else {
+      btn.innerText = '가시권 표시: OFF';
+      btn.classList.add('off');
+    }
+    updateOpacity();
+  }
+
+  function resetViewAngle() {
+    document.getElementById('pitchSlider').value = 60;
+    updatePitch();
+    map.setBearing(0);
+  }
+
+  map.on('load', () => {
+    mapReady = true;
+    setStatus("3D 위성 지도 준비 완료! MGRS 입력 후 이동하거나 지도를 클릭하세요.");
+  });
+
+  function setStatus(msg) {
+    document.getElementById('statusBox').innerHTML = msg;
+  }
+
+  function applyPreset() {
+    const v = document.getElementById('presetSelect').value;
+    const r = document.getElementById('radiusSlider');
+    const tx = document.getElementById('txSlider');
+    const rx = document.getElementById('rxSlider');
+
+    if (v === '999k_short') { freqMHz = 50; r.value = 4; tx.value = 2; rx.value = 2; }
+    else if (v === '999k_long') { freqMHz = 50; r.value = 8; tx.value = 3; rx.value = 2; }
+    else if (v === '999k_as992k') { freqMHz = 50; r.value = 30; tx.value = 10; rx.value = 3; }
+    else if (v === 'combat_radio') { freqMHz = 435; r.value = 2; tx.value = 2; rx.value = 2; }
+    else if (v === 'combat_relay') { freqMHz = 435; r.value = 4; tx.value = 6; rx.value = 2; }
+    else if (v === 'tmmr_vhf') { freqMHz = 60; r.value = 12; tx.value = 3; rx.value = 2; }
+    else if (v === 'tmmr_uhf') { freqMHz = 400; r.value = 8; tx.value = 6; rx.value = 2; }
+    updateLbls();
+  }
+
+  function updateLbls() {
+    document.getElementById('radiusLbl').innerText = document.getElementById('radiusSlider').value + ' km';
+    document.getElementById('txLbl').innerText = Math.min(10, document.getElementById('txSlider').value) + ' m';
+    document.getElementById('rxLbl').innerText = Math.min(10, document.getElementById('rxSlider').value) + ' m';
+    document.getElementById('clutterLbl').innerText = document.getElementById('clutterSlider').value + ' m';
+  }
+
+  function updatePitch() {
+    const p = parseInt(document.getElementById('pitchSlider').value, 10);
+    document.getElementById('pitchLbl').innerText = p + '°';
+    if (mapReady) map.setPitch(Math.min(85, p));
+  }
+
+  function setPointA(lat, lng, fromBoxes = false, autoRun = false) {
+    runToken++;
+    document.getElementById('runBtn').disabled = false;
+
+    pointA = { lat, lng };
+    clearViewshedLayer();
+    updateMarkerA(lat, lng);
+
+    const formattedMgrs = fromBoxes
+      ? `${document.getElementById('mZone').value || '52'}${document.getElementById('mBand').value || 'S'}${document.getElementById('mSq').value.toUpperCase()} ${(document.getElementById('mEast').value || '00000').padEnd(5, '0')} ${(document.getElementById('mNorth').value || '00000').padEnd(5, '0')}`
+      : syncMgrsBoxes(lat, lng);
+
+    const p = Math.min(85, parseInt(document.getElementById('pitchSlider').value, 10));
+    map.jumpTo({ center: [lng, lat], zoom: 13.5, pitch: p });
+
+    if (autoRun) {
+      setStatus(`기준점 A 지정: <b>${formattedMgrs}</b><br>가시권 도포 중...`);
+      runViewshed();
+    } else {
+      setStatus(`기준점 A 지정: <b>${formattedMgrs}</b><br>[전방위 LOS 가시권 고해상도 도포] 버튼을 누르세요.`);
+    }
+  }
+
+  function moveToMgrsBoxes() {
+    const zone = document.getElementById('mZone').value.trim();
+    const band = document.getElementById('mBand').value.trim();
+    const sq = document.getElementById('mSq').value.trim();
+    const east = document.getElementById('mEast').value.trim();
+    const north = document.getElementById('mNorth').value.trim();
+
+    if (sq.length < 2) {
+      return setStatus("⚠️ 100km 격자 칸(예: <b>CH</b> 또는 <b>ch</b>)에 2글자를 입력하세요.");
+    }
+
+    const parsed = partsToLatLng(zone, band, sq, east, north);
+    if (!parsed) {
+      return setStatus("❌ 입력한 MGRS 격자 값을 확인해 주세요.");
+    }
+
+    const autoRun = document.getElementById('autoRunCheck').checked;
+    setPointA(parsed.lat, parsed.lng, true, autoRun);
+  }
+
+  map.on('click', (e) => setPointA(e.lngLat.lat, e.lngLat.lng, false, false));
+
+  function latLngToTilePixel(lat, lng, zoom) {
+    const n = Math.pow(2, zoom);
+    const xFloat = ((lng + 180) / 360) * n;
+    const latRad = (lat * Math.PI) / 180;
+    const yFloat = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+    const tileX = Math.floor(xFloat), tileY = Math.floor(yFloat);
+    return {
+      tileX, tileY,
+      px: Math.min(255, Math.max(0, Math.floor((xFloat - tileX) * 256))),
+      py: Math.min(255, Math.max(0, Math.floor((yFloat - tileY) * 256)))
+    };
+  }
+
+  function loadDemTile(z, x, y) {
+    const key = `${z}/${x}/${y}`;
+    if (tileCache.has(key)) return Promise.resolve(tileCache.get(key));
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      const timer = setTimeout(() => {
+        tileCache.set(key, null);
+        resolve(false);
+      }, 4500);
+
+      img.onload = () => {
+        clearTimeout(timer);
+        try {
+          const c = document.createElement('canvas');
+          c.width = 256; c.height = 256;
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          const data = ctx.getImageData(0, 0, 256, 256).data;
+          tileCache.set(key, data);
+          resolve(true);
+        } catch (err) {
+          tileCache.set(key, null);
+          resolve(false);
+        }
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        tileCache.set(key, null);
+        resolve(false);
+      };
+      img.src = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+    });
+  }
+
+  function sampleRawElev(lat, lng) {
+    const { tileX, tileY, px, py } = latLngToTilePixel(lat, lng, DEM_ZOOM);
+    const data = tileCache.get(`${DEM_ZOOM}/${tileX}/${tileY}`);
+    if (!data) return null;
+    const idx = (py * 256 + px) * 4;
+    return (data[idx] * 256 + data[idx + 1] + data[idx + 2] / 256) - 32768;
+  }
+
+  function getElev(lat, lng, fallbackElev = 100) {
+    const dLat = 0.00011;
+    const dLng = 0.00014;
+    const vals = [];
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const v = sampleRawElev(lat + oy * dLat, lng + ox * dLng);
+        if (v !== null) vals.push(v);
+      }
+    }
+    if (vals.length === 0) return fallbackElev;
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
+
+  function destPoint(lat, lng, distM, bearingDeg) {
+    const brng = (bearingDeg * Math.PI) / 180;
+    const lat1 = (lat * Math.PI) / 180;
+    const lon1 = (lng * Math.PI) / 180;
+    const ad = distM / R_EARTH;
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(ad) + Math.cos(lat1) * Math.sin(ad) * Math.cos(brng));
+    const lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(ad) * Math.cos(lat1), Math.cos(ad) - Math.sin(lat1) * Math.sin(lat2));
+    return { lat: (lat2 * 180) / Math.PI, lng: (lon2 * 180) / Math.PI };
+  }
+
+  async function preloadDem(lat, lng, maxDistM) {
+    const padDist = maxDistM + 600;
+    const n = destPoint(lat, lng, padDist, 0).lat;
+    const s = destPoint(lat, lng, padDist, 180).lat;
+    const e = destPoint(lat, lng, padDist, 90).lng;
+    const w = destPoint(lat, lng, padDist, 270).lng;
+
+    const nw = latLngToTilePixel(n, w, DEM_ZOOM);
+    const se = latLngToTilePixel(s, e, DEM_ZOOM);
+
+    let ok = 0, total = 0;
+    const jobs = [];
+    for (let x = Math.min(nw.tileX, se.tileX); x <= Math.max(nw.tileX, se.tileX); x++) {
+      for (let y = Math.min(nw.tileY, se.tileY); y <= Math.max(nw.tileY, se.tileY); y++) {
+        total++;
+        jobs.push(loadDemTile(DEM_ZOOM, x, y).then(r => { if (r) ok++; }));
+      }
+    }
+    await Promise.all(jobs);
+    return { ok, total };
+  }
+
+  async function runViewshed() {
+    if (!pointA) {
+      setStatus("⚠️ 먼저 기준점 A를 지정하세요.");
+      return;
+    }
+
+    const currentToken = ++runToken;
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+
+    const radiusKm = parseFloat(document.getElementById('radiusSlider').value);
+    const maxDist = radiusKm * 1000;
+    const txH = Math.min(10, parseFloat(document.getElementById('txSlider').value));
+    const rxH = Math.min(10, parseFloat(document.getElementById('rxSlider').value));
+    const clutterH = parseFloat(document.getElementById('clutterSlider').value);
+    const lambda = 299.792458 / freqMHz;
+
+    setStatus("🛰️ 지형 고도 데이터 불러오는 중...");
+    const demRes = await preloadDem(pointA.lat, pointA.lng, maxDist);
+    if (currentToken !== runToken) return;
+
+    const hasDem = demRes.ok > 0;
+    const txGround = getElev(pointA.lat, pointA.lng, 100);
+    const txTop = txGround + txH;
+
+    const north = destPoint(pointA.lat, pointA.lng, maxDist, 0).lat;
+    const south = destPoint(pointA.lat, pointA.lng, maxDist, 180).lat;
+    const east = destPoint(pointA.lat, pointA.lng, maxDist, 90).lng;
+    const west = destPoint(pointA.lat, pointA.lng, maxDist, 270).lng;
+
+    const canvasSize = 640;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+    const ctx = canvas.getContext('2d');
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const numRays = 360;
+    const stepM = Math.max(20, Math.min(40, maxDist / 260));
+    const numSteps = Math.max(10, Math.floor(maxDist / stepM));
+
+    const toPx = (pt) => ({
+      x: ((pt.lng - west) / (east - west)) * canvasSize,
+      y: ((north - pt.lat) / (north - south)) * canvasSize
+    });
+
+    let ray = 0;
+    function stepChunk() {
+      if (currentToken !== runToken) return;
+
+      const endRay = Math.min(ray + 40, numRays);
+      for (; ray < endRay; ray++) {
+        const bearing = (ray / numRays) * 360;
+        let maxTerrainSlope = -Infinity;
+        const prof = [];
+
+        for (let i = 1; i <= numSteps; i++) {
+          const d = i * stepM;
+          const pt = destPoint(pointA.lat, pointA.lng, d, bearing);
+          const g = hasDem ? getElev(pt.lat, pt.lng, txGround) : txGround;
+          const curve = (d * d) / (2 * R_EFF);
+          const effG = g - curve;
+          const nearFactor = d < 150 ? 0 : clutterH;
+          const effObs = effG + nearFactor;
+          const terrainSlope = (effObs - txTop) / d;
+          prof.push({ d, pt, effG, effObs, terrainSlope, px: toPx(pt) });
+        }
+
+        for (let i = 0; i < prof.length; i++) {
+          const cur = prof[i];
+          const d = cur.d;
+          const rxTop = cur.effG + rxH;
+          const losSlope = (rxTop - txTop) / d;
+          const prevPx = i === 0 ? toPx(pointA) : prof[i - 1].px;
+
+          if (d <= 120) {
+            ctx.beginPath();
+            ctx.moveTo(prevPx.x, prevPx.y);
+            ctx.lineTo(cur.px.x, cur.px.y);
+            ctx.strokeStyle = 'rgba(34, 211, 102, 0.85)';
+            ctx.lineWidth = Math.max(2.6, (canvasSize / numRays) * 1.6);
+            ctx.stroke();
+          } else {
+            const blocked = losSlope < maxTerrainSlope - 0.0004;
+            let fresnelGood = true;
+
+            if (!blocked) {
+              const stride = Math.max(1, Math.floor(i / 8));
+              for (let k = 1; k < i; k += stride) {
+                const mid = prof[k];
+                const d1 = mid.d;
+                const lineH = txTop + losSlope * d1;
+                const r1 = Math.sqrt((lambda * d1 * (d - d1)) / d);
+                if (lineH - mid.effObs < 0.25 * r1) {
+                  fresnelGood = false;
+                  break;
+                }
+              }
+            }
+
+            if (!blocked) {
+              ctx.beginPath();
+              ctx.moveTo(prevPx.x, prevPx.y);
+              ctx.lineTo(cur.px.x, cur.px.y);
+              ctx.strokeStyle = fresnelGood
+                ? 'rgba(34, 211, 102, 0.85)'
+                : 'rgba(250, 204, 21, 0.82)';
+              ctx.lineWidth = Math.max(2.4, (canvasSize / numRays) * 1.5);
+              ctx.stroke();
+            }
+          }
+
+          if (cur.terrainSlope > maxTerrainSlope) {
+            maxTerrainSlope = cur.terrainSlope;
+          }
+        }
+      }
+
+      if (ray < numRays) {
+        const pct = Math.round((ray / numRays) * 100);
+        setStatus(`⚙️ 전방위 가시권 도포 중... (${pct}%)`);
+        requestAnimationFrame(stepChunk);
+      } else {
+        clearViewshedLayer();
+        map.addSource('viewshed-raster-src', {
+          type: 'image',
+          url: canvas.toDataURL(),
+          coordinates: [
+            [west, north],
+            [east, north],
+            [east, south],
+            [west, south]
+          ]
+        });
+
+        map.addLayer({
+          id: 'viewshed-raster-layer',
+          type: 'raster',
+          source: 'viewshed-raster-src',
+          paint: { 'raster-opacity': viewshedVisible ? getOpacityValue() : 0 }
+        });
+
+        updateMarkerA(pointA.lat, pointA.lng);
+
+        btn.disabled = false;
+        const modeTxt = hasDem ? `기준고도 ${Math.round(txGround)}m` : `DEM 미수신·곡률 기준`;
+        setStatus(`✅ 도포 완료! (${modeTxt} · 보정 ${clutterH}m · 안테나 ${txH}m · 반경 ${radiusKm}km)`);
+      }
+    }
+
+    requestAnimationFrame(stepChunk);
+  }
+</script>
+</body>
+</html>
